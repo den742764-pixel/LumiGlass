@@ -182,6 +182,127 @@ dialog_cell.write_text(content, encoding="utf-8")
 
 
 # --------------------------------------------------
+# Исправление поиска контактов
+# --------------------------------------------------
+
+search_adapter = PROJECT / (
+    "TMessagesProj/src/main/java/org/telegram/ui/Adapters/SearchAdapter.java"
+)
+
+content = search_adapter.read_text(encoding="utf-8")
+
+old_search = """                if (allUnregistredContacts == null) {
+                    allUnregistredContacts = new ArrayList<>();
+                    for (ContactsController.Contact contact : ContactsController.getInstance(currentAccount).phoneBookContacts) {
+                        ContactEntry contactEntry = new ContactEntry();
+                        contactEntry.contact = contact;
+                        contactEntry.q1 = (contact.first_name + " " + contact.last_name).toLowerCase();
+                        contactEntry.q2 = (contact.last_name + " " + contact.first_name).toLowerCase();
+                        allUnregistredContacts.add(contactEntry);
+                    }
+                }
+                for (int i = 0; i < allUnregistredContacts.size(); i++) {
+                    ContactEntry contact = allUnregistredContacts.get(i);
+                    if ((search2 != null && (contact.q1.toLowerCase().contains(search2) || contact.q1.toLowerCase().contains(search2))) || contact.q1.toLowerCase().contains(search1) || contact.q1.toLowerCase().contains(search1)) {
+                        unregistredContacts.add(contact.contact);
+                    }
+                }
+"""
+
+new_search = """                // Rebuild the phonebook cache on every search.
+                // This keeps results current after Telegram contact sync.
+                allUnregistredContacts = new ArrayList<>();
+
+                for (ContactsController.Contact phoneContact :
+                        ContactsController.getInstance(currentAccount).phoneBookContacts) {
+
+                    ContactEntry entry = new ContactEntry();
+                    entry.contact = phoneContact;
+
+                    String first = phoneContact.first_name == null
+                            ? "" : phoneContact.first_name.trim();
+
+                    String last = phoneContact.last_name == null
+                            ? "" : phoneContact.last_name.trim();
+
+                    entry.q1 = (first + " " + last).trim().toLowerCase();
+                    entry.q2 = (last + " " + first).trim().toLowerCase();
+
+                    allUnregistredContacts.add(entry);
+                }
+
+                // Digits typed by the user. Phone matching is limited
+                // to numbers already present in the user's own phonebook.
+                String searchDigits = search1.replaceAll("[^0-9]", "");
+
+                for (int i = 0; i < allUnregistredContacts.size(); i++) {
+                    ContactEntry entry = allUnregistredContacts.get(i);
+
+                    boolean nameMatches =
+                            (!entry.q1.isEmpty() && entry.q1.contains(search1))
+                            || (!entry.q2.isEmpty() && entry.q2.contains(search1));
+
+                    if (!nameMatches && search2 != null) {
+                        nameMatches =
+                                (!entry.q1.isEmpty() && entry.q1.contains(search2))
+                                || (!entry.q2.isEmpty() && entry.q2.contains(search2));
+                    }
+
+                    boolean phoneMatches = false;
+
+                    if (searchDigits.length() >= 5) {
+                        for (String phone : entry.contact.phones) {
+                            if (phone == null) {
+                                continue;
+                            }
+
+                            String phoneDigits = phone.replaceAll("[^0-9]", "");
+
+                            if (phoneDigits.equals(searchDigits)
+                                    || phoneDigits.endsWith(searchDigits)
+                                    || searchDigits.endsWith(phoneDigits)
+                                        && phoneDigits.length() >= 7) {
+                                phoneMatches = true;
+                                break;
+                            }
+                        }
+
+                        if (!phoneMatches) {
+                            for (String phone : entry.contact.shortPhones) {
+                                if (phone == null) {
+                                    continue;
+                                }
+
+                                String phoneDigits = phone.replaceAll("[^0-9]", "");
+
+                                if (phoneDigits.equals(searchDigits)
+                                        || phoneDigits.endsWith(searchDigits)
+                                        || searchDigits.endsWith(phoneDigits)
+                                            && phoneDigits.length() >= 7) {
+                                    phoneMatches = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if (nameMatches || phoneMatches) {
+                        unregistredContacts.add(entry.contact);
+                    }
+                }
+"""
+
+content = replace_once(
+    content,
+    old_search,
+    new_search,
+    "SearchAdapter phonebook search block not found; source version may have changed"
+)
+
+search_adapter.write_text(content, encoding="utf-8")
+
+
+# --------------------------------------------------
 # Нижняя панель LumiGlass
 # --------------------------------------------------
 
@@ -284,8 +405,6 @@ if "selectorBorderPaint.setStyle" not in content:
 # Настоящий свайп без удерживания
 # --------------------------------------------------
 
-# Состояние жеста
-
 gesture_fields = """    // LumiGlass immediate horizontal swipe
     private boolean lumiTrackingTouch;
     private boolean lumiDraggingTouch;
@@ -325,9 +444,8 @@ content = replace_once(
 )
 
 
-# Убираем вызов ClickHelper из dispatchTouchEvent.
-# Обычные нажатия по-прежнему обрабатываются super,
-# а горизонтальный свайп перехватывается сразу после touch slop.
+# Горизонтальный свайп начинает перемещать капсулу
+# сразу после обычного системного порога движения пальца.
 
 old_dispatch = """    @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
@@ -465,6 +583,6 @@ tabs_layout.write_text(content, encoding="utf-8")
 # --------------------------------------------------
 
 print(
-    "LumiGlass: palette, chat cards, ruby glass capsule "
-    "and immediate swipe navigation configured"
+    "LumiGlass: palette, chat cards, contact name/phone search, "
+    "ruby glass capsule and immediate swipe navigation configured"
 )
