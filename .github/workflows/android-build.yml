@@ -49,7 +49,8 @@ jobs:
       - name: Download Telegram source
         run: |
           git clone --depth=1 --recurse-submodules --shallow-submodules https://github.com/DrKLO/Telegram.git telegram-src
-
+      - name: Apply LumiGlass changes
+        run: python3 scripts/apply_lumiglass.py
       - name: Build APK
         working-directory: telegram-src
         run: |
