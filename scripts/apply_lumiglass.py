@@ -142,7 +142,7 @@ if "LumiGlass rounded chat card" not in content:
 
 dialog_cell.write_text(content, encoding="utf-8")
 
-# Более быстрое перетаскивание нижней капсулы
+# Перетаскивание нижней капсулы
 tabs_layout = PROJECT / "TMessagesProj/src/main/java/org/telegram/ui/MainTabsLayout.java"
 content = tabs_layout.read_text(encoding="utf-8")
 
@@ -151,7 +151,7 @@ old = """        public long getLongPressDuration() {
         }"""
 
 new = """        public long getLongPressDuration() {
-            return 140;
+            return 80;
         }"""
 
 if old in content:
@@ -161,4 +161,4 @@ elif new not in content:
 
 tabs_layout.write_text(content, encoding="utf-8")
 
-print("LumiGlass: palette, chat cards and faster tab dragging configured")
+print("LumiGlass: palette, chat cards and capsule dragging configured")
