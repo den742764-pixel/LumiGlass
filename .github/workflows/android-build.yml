@@ -23,9 +23,28 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
       - name: Install Android components
+        shell: bash
         run: |
-          SDKMANAGER="$(find /usr/local/lib/android/sdk/cmdline-tools -type f -name sdkmanager | head -n 1)""$SDKMANAGER" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ОШИБКА: sdkmanager не найден"
+            exit 1
+          fi
+
+          echo "Найден sdkmanager: $SDKMANAGER"
+
+          "$SDKMANAGER" --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
 
       - name: Download Telegram source
         run: |
@@ -34,7 +53,10 @@ jobs:
       - name: Build APK
         working-directory: telegram-src
         run: |
-          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+
           chmod +x ./gradlew
           ./gradlew --no-daemon :TMessagesProj_App:assembleAfatDebug
 
