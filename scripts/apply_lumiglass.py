@@ -1,86 +1,165 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+LumiGlass — patch script for the Telegram Android source.
+
+Run from the repository root:
+    python3 scripts/apply_lumiglass.py
+
+The Telegram source must be in ./telegram-src
+"""
+
 from pathlib import Path
 import re
+import sys
+
 
 ROOT = Path(__file__).resolve().parent.parent
 PROJECT = ROOT / "telegram-src"
 
-if not PROJECT.exists():
-    raise SystemExit("Telegram source folder not found")
+if not PROJECT.is_dir():
+    raise SystemExit(
+        "ERROR: telegram-src folder not found. "
+        "Run this script from the LumiGlass repository root."
+    )
 
 
-def replace_once(content, old, new, error):
+def read_file(relative_path):
+    path = PROJECT / relative_path
+    if not path.is_file():
+        raise SystemExit(f"ERROR: source file not found: {path}")
+    return path, path.read_text(encoding="utf-8")
+
+
+def write_file(path, content):
+    path.write_text(content, encoding="utf-8")
+
+
+def replace_required(content, old, new, description):
+    if new in content:
+        return content
     if old not in content:
-        if new in content:
-            return content
-        raise SystemExit(error)
+        raise SystemExit(f"ERROR: cannot find source anchor: {description}")
     return content.replace(old, new, 1)
 
 
-# --------------------------------------------------
-# Название приложения
-# --------------------------------------------------
+def replace_in_style(content, style_name, replacements):
+    pattern = (
+        r'(<style\s+name="' + re.escape(style_name) +
+        r'"[^>]*>)(.*?)(</style>)'
+    )
+    match = re.search(pattern, content, flags=re.S)
 
-manifest = PROJECT / "TMessagesProj/src/main/AndroidManifest.xml"
-content = manifest.read_text(encoding="utf-8")
+    if not match:
+        raise SystemExit(f"ERROR: style not found: {style_name}")
 
-content, count = re.subn(
-    r"<application\b",
-    '<application android:label="LumiGlass"',
+    body = match.group(2)
+
+    for old, new in replacements:
+        if new in body:
+            continue
+        if old not in body:
+            raise SystemExit(
+                f"ERROR: style item not found in {style_name}: {old}"
+            )
+        body = body.replace(old, new, 1)
+
+    return content[:match.start(2)] + body + content[match.end(2):]
+
+
+# ============================================================
+# 1. APP NAME
+# ============================================================
+
+path, content = read_file(
+    "TMessagesProj/src/main/AndroidManifest.xml"
+)
+
+match = re.search(r"<application\b[^>]*>", content, flags=re.S)
+
+if not match:
+    raise SystemExit("ERROR: Android application tag not found")
+
+application_tag = match.group(0)
+
+if re.search(r'\bandroid:label\s*=', application_tag):
+    application_tag = re.sub(
+        r'android:label\s*=\s*"[^"]*"',
+        'android:label="LumiGlass"',
+        application_tag,
+        count=1
+    )
+else:
+    application_tag = (
+        application_tag[:-1] +
+        ' android:label="LumiGlass">'
+    )
+
+content = (
+    content[:match.start()] +
+    application_tag +
+    content[match.end():]
+)
+
+write_file(path, content)
+
+
+# ============================================================
+# 2. STARTUP THEME
+# ============================================================
+
+path, content = read_file(
+    "TMessagesProj/src/main/res/values/styles.xml"
+)
+
+content = replace_in_style(
     content,
-    count=1
+    "Theme.TMessages.Start",
+    [
+        (
+            '<item name="android:colorBackground">'
+            '@android:color/white</item>',
+            '<item name="android:colorBackground">'
+            '#100D12</item>'
+        ),
+        (
+            '<item name="android:windowBackground">'
+            '@android:color/white</item>',
+            '<item name="android:windowBackground">'
+            '#100D12</item>'
+        ),
+    ]
 )
 
-if count != 1:
-    raise SystemExit("Could not set LumiGlass app name")
+old_accent = '<item name="android:background">#ff527da3</item>'
+new_accent = '<item name="android:background">#FF792F4A</item>'
 
-manifest.write_text(content, encoding="utf-8")
+if old_accent in content:
+    content = content.replace(old_accent, new_accent, 1)
+elif new_accent not in content:
+    raise SystemExit("ERROR: startup accent color not found")
+
+write_file(path, content)
 
 
-# --------------------------------------------------
-# Стартовый экран
-# --------------------------------------------------
+# ============================================================
+# 3. LUMIGLASS COLOR PALETTE
+# ============================================================
 
-styles = PROJECT / "TMessagesProj/src/main/res/values/styles.xml"
-content = styles.read_text(encoding="utf-8")
-
-content = content.replace(
-    '<item name="android:colorBackground">@android:color/white</item>',
-    '<item name="android:colorBackground">#100D12</item>',
-    1
+path, content = read_file(
+    "TMessagesProj/src/main/res/values/colors.xml"
 )
-
-content = content.replace(
-    '<item name="android:windowBackground">@android:color/white</item>',
-    '<item name="android:windowBackground">#100D12</item>',
-    1
-)
-
-old = '<item name="android:background">#ff527da3</item>'
-new = '<item name="android:background">#FF792F4A</item>'
-
-if old in content:
-    content = content.replace(old, new, 1)
-elif new not in content:
-    raise SystemExit("Start screen accent not found")
-
-styles.write_text(content, encoding="utf-8")
-
-
-# --------------------------------------------------
-# Палитра LumiGlass
-# --------------------------------------------------
-
-colors = PROJECT / "TMessagesProj/src/main/res/values/colors.xml"
-content = colors.read_text(encoding="utf-8")
 
 content = re.sub(
-    r"\s*<!-- LumiGlass palette -->.*?<!-- /LumiGlass palette -->",
-    "",
+    r'\s*<!-- LumiGlass palette -->.*?'
+    r'<!-- /LumiGlass palette -->',
+    '',
     content,
     flags=re.S
 )
 
-block = """
+palette = """
     <!-- LumiGlass palette -->
     <color name="lumi_bg">#100D12</color>
     <color name="lumi_surface">#211923</color>
@@ -93,70 +172,70 @@ block = """
     <!-- /LumiGlass palette -->
 """
 
-content = content.replace("</resources>", block + "\n</resources>")
-colors.write_text(content, encoding="utf-8")
+if "</resources>" not in content:
+    raise SystemExit("ERROR: colors.xml has no resources closing tag")
+
+content = content.replace(
+    "</resources>",
+    palette + "\n</resources>",
+    1
+)
+
+write_file(path, content)
 
 
-# --------------------------------------------------
-# Стеклянные карточки списка чатов
-# --------------------------------------------------
+# ============================================================
+# 4. CHAT LIST GLASS CARDS
+# ============================================================
 
-dialog_cell = PROJECT / (
+path, content = read_file(
     "TMessagesProj/src/main/java/org/telegram/ui/Cells/DialogCell.java"
 )
 
-content = dialog_cell.read_text(encoding="utf-8")
-
 field_anchor = "    protected float translationX;\n"
 
-fields = """    protected float translationX;
+field_code = """    protected float translationX;
 
-    // LumiGlass chat card paints
+    // LumiGlass card drawing resources.
     private final Paint lumiCardPaint =
             new Paint(Paint.ANTI_ALIAS_FLAG);
+
     private final Paint lumiCardBorderPaint =
             new Paint(Paint.ANTI_ALIAS_FLAG);
+
+    private final RectF lumiGlassCardRect = new RectF();
 """
 
-if "LumiGlass chat card paints" not in content:
-    content = replace_once(
+if "lumiGlassCardRect" not in content:
+    content = replace_required(
         content,
         field_anchor,
-        fields,
-        "DialogCell field anchor not found"
+        field_code,
+        "DialogCell translationX field"
     )
 
-draw_anchor = """        if (translationX != 0) {
-            canvas.save();
-            canvas.translate(translationX, 0);
-            gtx += translationX;
-        }
-
-        float cornersRadius = dp(8) * cornerProgress;
+draw_anchor = """        float cornersRadius = dp(8) * cornerProgress;
 """
 
-draw_code = """        if (translationX != 0) {
-            canvas.save();
-            canvas.translate(translationX, 0);
-            gtx += translationX;
-        }
+draw_code = """        // LumiGlass rounded glass card.
+        float lumiInsetX = dp(8);
+        float lumiInsetY = dp(3);
 
-        // LumiGlass rounded chat card
-        float cardInsetX = dp(8);
-        float cardInsetY = dp(3);
-
-        rect.set(
-                cardInsetX,
-                cardInsetY,
-                getMeasuredWidth() - cardInsetX,
-                getMeasuredHeight() - cardInsetY
+        lumiGlassCardRect.set(
+                lumiInsetX,
+                lumiInsetY,
+                getMeasuredWidth() - lumiInsetX,
+                getMeasuredHeight() - lumiInsetY
         );
 
         lumiCardPaint.setStyle(Paint.Style.FILL);
         lumiCardPaint.setColor(0xFF211923);
 
         canvas.drawRoundRect(
-                rect, dp(16), dp(16), lumiCardPaint
+                lumiGlassCardRect,
+                dp(16),
+                dp(16),
+                lumiCardPaint
         );
 
         lumiCardBorderPaint.setStyle(Paint.Style.STROKE);
@@ -164,32 +243,33 @@ draw_code = """        if (translationX != 0) {
         lumiCardBorderPaint.setColor(0x55FFFFFF);
 
         canvas.drawRoundRect(
-                rect, dp(16), dp(16), lumiCardBorderPaint
+                lumiGlassCardRect,
+                dp(16),
+                dp(16),
+                lumiCardBorderPaint
         );
 
         float cornersRadius = dp(8) * cornerProgress;
 """
 
-if "LumiGlass rounded chat card" not in content:
-    content = replace_once(
+if "LumiGlass rounded glass card." not in content:
+    content = replace_required(
         content,
         draw_anchor,
         draw_code,
-        "DialogCell drawing anchor not found"
+        "DialogCell drawing anchor"
     )
 
-dialog_cell.write_text(content, encoding="utf-8")
+write_file(path, content)
 
 
-# --------------------------------------------------
-# Исправление поиска контактов
-# --------------------------------------------------
+# ============================================================
+# 5. CONTACT SEARCH FIX
+# ============================================================
 
-search_adapter = PROJECT / (
+path, content = read_file(
     "TMessagesProj/src/main/java/org/telegram/ui/Adapters/SearchAdapter.java"
 )
-
-content = search_adapter.read_text(encoding="utf-8")
 
 old_search = """                if (allUnregistredContacts == null) {
                     allUnregistredContacts = new ArrayList<>();
@@ -209,8 +289,7 @@ old_search = """                if (allUnregistredContacts == null) {
                 }
 """
 
-new_search = """                // Rebuild the phonebook cache on every search.
-                // This keeps results current after Telegram contact sync.
+new_search = """                // Refresh phonebook cache for every search.
                 allUnregistredContacts = new ArrayList<>();
 
                 for (ContactsController.Contact phoneContact :
@@ -231,8 +310,6 @@ new_search = """                // Rebuild the phonebook cache on every search.
                     allUnregistredContacts.add(entry);
                 }
 
-                // Digits typed by the user. Phone matching is limited
-                // to numbers already present in the user's own phonebook.
                 String searchDigits = search1.replaceAll("[^0-9]", "");
 
                 for (int i = 0; i < allUnregistredContacts.size(); i++) {
@@ -256,12 +333,12 @@ new_search = """                // Rebuild the phonebook cache on every search.
                                 continue;
                             }
 
-                            String phoneDigits = phone.replaceAll("[^0-9]", "");
+                            String digits = phone.replaceAll("[^0-9]", "");
 
-                            if (phoneDigits.equals(searchDigits)
-                                    || phoneDigits.endsWith(searchDigits)
-                                    || searchDigits.endsWith(phoneDigits)
-                                        && phoneDigits.length() >= 7) {
+                            if (digits.equals(searchDigits)
+                                    || digits.endsWith(searchDigits)
+                                    || (searchDigits.endsWith(digits)
+                                        && digits.length() >= 7)) {
                                 phoneMatches = true;
                                 break;
                             }
@@ -273,12 +350,12 @@ new_search = """                // Rebuild the phonebook cache on every search.
                                     continue;
                                 }
 
-                                String phoneDigits = phone.replaceAll("[^0-9]", "");
+                                String digits = phone.replaceAll("[^0-9]", "");
 
-                                if (phoneDigits.equals(searchDigits)
-                                        || phoneDigits.endsWith(searchDigits)
-                                        || searchDigits.endsWith(phoneDigits)
-                                            && phoneDigits.length() >= 7) {
+                                if (digits.equals(searchDigits)
+                                        || digits.endsWith(searchDigits)
+                                        || (searchDigits.endsWith(digits)
+                                            && digits.length() >= 7)) {
                                     phoneMatches = true;
                                     break;
                                 }
@@ -292,56 +369,38 @@ new_search = """                // Rebuild the phonebook cache on every search.
                 }
 """
 
-content = replace_once(
-    content,
-    old_search,
-    new_search,
-    "SearchAdapter phonebook search block not found; source version may have changed"
-)
+if old_search in content:
+    content = content.replace(old_search, new_search, 1)
+elif "Refresh phonebook cache for every search." not in content:
+    raise SystemExit(
+        "ERROR: SearchAdapter source block differs from expected version"
+    )
 
-search_adapter.write_text(content, encoding="utf-8")
+write_file(path, content)
 
 
-# --------------------------------------------------
-# Нижняя панель LumiGlass
-# --------------------------------------------------
+# ============================================================
+# 6. RUBY GLASS BOTTOM TAB CAPSULE
+# ============================================================
 
-tabs_layout = PROJECT / (
+path, content = read_file(
     "TMessagesProj/src/main/java/org/telegram/ui/MainTabsLayout.java"
 )
 
-content = tabs_layout.read_text(encoding="utf-8")
-
-
-# Импорт порога движения пальца
-
-if "import android.view.ViewConfiguration;" not in content:
-    content = replace_once(
-        content,
-        "import android.view.ViewGroup;\n",
-        "import android.view.ViewGroup;\n"
-        "import android.view.ViewConfiguration;\n",
-        "Could not add ViewConfiguration import"
-    )
-
-
-# Рубиновое заполнение капсулы
-
-old = (
+old_color = (
     "selectorPaint.setColor(Theme.multAlpha("
     "Theme.getColor(Theme.key_glass_tabSelected, resourcesProvider), "
     "0.09f));"
 )
 
-new = "selectorPaint.setColor(Theme.multAlpha(0xFFA52A50, 0.28f));"
+new_color = (
+    "selectorPaint.setColor(Theme.multAlpha(0xFFA52A50, 0.28f));"
+)
 
-if old in content:
-    content = content.replace(old, new, 1)
-elif new not in content:
-    raise SystemExit("Capsule fill anchor not found")
-
-
-# Контур капсулы
+if old_color in content:
+    content = content.replace(old_color, new_color, 1)
+elif new_color not in content:
+    raise SystemExit("ERROR: tab selector color anchor not found")
 
 paint_anchor = (
     "    final Paint selectorPaint = "
@@ -354,15 +413,12 @@ paint_code = paint_anchor + (
 )
 
 if "selectorBorderPaint" not in content:
-    content = replace_once(
+    content = replace_required(
         content,
         paint_anchor,
         paint_code,
-        "Capsule paint anchor not found"
+        "MainTabsLayout selector paint"
     )
-
-
-# Отрисовка стеклянной капсулы
 
 draw_anchor = """            canvas.drawRoundRect(
                     x - sWidth / 2f, (getHeight() - sHeight) / 2f,
@@ -389,200 +445,70 @@ draw_code = """            float left = x - sWidth / 2f;
                     top + dp(0.5f),
                     right - dp(0.5f),
                     bottom - dp(0.5f),
-                    radius, radius, selectorBorderPaint);
+                    radius,
+                    radius,
+                    selectorBorderPaint);
 """
 
 if "selectorBorderPaint.setStyle" not in content:
-    content = replace_once(
+    content = replace_required(
         content,
         draw_anchor,
         draw_code,
-        "Capsule drawing anchor not found"
+        "MainTabsLayout selector drawing"
     )
 
-
-# --------------------------------------------------
-# Настоящий свайп без удерживания
-# --------------------------------------------------
-
-gesture_fields = """    // LumiGlass immediate horizontal swipe
-    private boolean lumiTrackingTouch;
-    private boolean lumiDraggingTouch;
-    private float lumiDownX;
-    private float lumiDownY;
-    private float lumiLastX;
-    private float lumiLastY;
-    private int lumiTouchSlop;
-"""
-
-if "LumiGlass immediate horizontal swipe" not in content:
-    content = replace_once(
-        content,
-        "    private boolean isInLongPress;\n",
-        gesture_fields + "\n    private boolean isInLongPress;\n",
-        "Could not add LumiGlass gesture fields"
-    )
+write_file(path, content)
 
 
-# Инициализация порога движения
+# ============================================================
+# 7. PATCH VALIDATION
+# ============================================================
 
-constructor_anchor = """        super(context);
-        this.resourcesProvider = resourcesProvider;
-"""
+checks = {
+    "TMessagesProj/src/main/AndroidManifest.xml": [
+        'android:label="LumiGlass"'
+    ],
+    "TMessagesProj/src/main/res/values/colors.xml": [
+        'name="lumi_bg"',
+        'name="lumi_ruby"',
+        'name="lumi_glass_border"'
+    ],
+    "TMessagesProj/src/main/java/org/telegram/ui/Cells/DialogCell.java": [
+        "lumiGlassCardRect",
+        "LumiGlass rounded glass card."
+    ],
+    "TMessagesProj/src/main/java/org/telegram/ui/Adapters/SearchAdapter.java": [
+        "Refresh phonebook cache for every search.",
+        "boolean phoneMatches"
+    ],
+    "TMessagesProj/src/main/java/org/telegram/ui/MainTabsLayout.java": [
+        "selectorBorderPaint",
+        "0xFFA52A50"
+    ]
+}
 
-constructor_code = """        super(context);
-        this.resourcesProvider = resourcesProvider;
-        lumiTouchSlop = ViewConfiguration.get(context)
-                .getScaledTouchSlop();
-"""
+for relative_path, markers in checks.items():
+    file_path = PROJECT / relative_path
 
-content = replace_once(
-    content,
-    constructor_anchor,
-    constructor_code,
-    "MainTabsLayout constructor anchor not found"
-)
+    if not file_path.is_file():
+        raise SystemExit(f"ERROR: validation file missing: {relative_path}")
 
+    data = file_path.read_text(encoding="utf-8")
 
-# Горизонтальный свайп начинает перемещать капсулу
-# сразу после обычного системного порога движения пальца.
-
-old_dispatch = """    @Override
-    public boolean dispatchTouchEvent(MotionEvent ev) {
-        clickHelper.onTouchEvent(this, ev);
-        return super.dispatchTouchEvent(ev);
-    }
-"""
-
-new_dispatch = """    @Override
-    public boolean dispatchTouchEvent(MotionEvent ev) {
-        final int action = ev.getActionMasked();
-
-        if (action == MotionEvent.ACTION_DOWN) {
-            lumiTrackingTouch = true;
-            lumiDraggingTouch = false;
-            lumiDownX = ev.getX();
-            lumiDownY = ev.getY();
-            lumiLastX = lumiDownX;
-            lumiLastY = lumiDownY;
-
-            return super.dispatchTouchEvent(ev);
-        }
-
-        if (!lumiTrackingTouch) {
-            return super.dispatchTouchEvent(ev);
-        }
-
-        if (action == MotionEvent.ACTION_MOVE) {
-            final float x = ev.getX();
-            final float y = ev.getY();
-            lumiLastX = x;
-            lumiLastY = y;
-
-            if (!lumiDraggingTouch) {
-                final float dx = x - lumiDownX;
-                final float dy = y - lumiDownY;
-
-                if (Math.abs(dx) > lumiTouchSlop
-                        && Math.abs(dx) > Math.abs(dy)) {
-
-                    lumiDraggingTouch = true;
-
-                    MotionEvent cancel = MotionEvent.obtain(ev);
-                    cancel.setAction(MotionEvent.ACTION_CANCEL);
-                    super.dispatchTouchEvent(cancel);
-                    cancel.recycle();
-
-                    AndroidUtilities.cancelRunOnUIThread(
-                            restoreDrawSelector
-                    );
-
-                    setSkipDrawSelector(true);
-                    checkLongMove(
-                            lumiDownX, lumiDownY, true, false
-                    );
-                    checkLongMove(x, y, false, false);
-
-                    invalidate();
-                    return true;
-                }
-
-                return super.dispatchTouchEvent(ev);
-            }
-
-            checkLongMove(x, y, false, false);
-            invalidate();
-            return true;
-        }
-
-        if (action == MotionEvent.ACTION_UP) {
-            if (lumiDraggingTouch) {
-                checkLongMove(
-                        ev.getX(), ev.getY(), false, true
-                );
-
-                lumiTrackingTouch = false;
-                lumiDraggingTouch = false;
-
-                AndroidUtilities.runOnUIThread(
-                        restoreDrawSelector, 250
-                );
-
-                if (lastLongSelectedView != null) {
-                    lastLongSelectedView.performClick();
-                }
-
-                lastLongSelectedView = null;
-                invalidate();
-                return true;
-            }
-
-            lumiTrackingTouch = false;
-            return super.dispatchTouchEvent(ev);
-        }
-
-        if (action == MotionEvent.ACTION_CANCEL) {
-            if (lumiDraggingTouch) {
-                checkLongMove(
-                        lumiLastX, lumiLastY, false, true
-                );
-
-                AndroidUtilities.runOnUIThread(
-                        restoreDrawSelector, 250
-                );
-
-                lastLongSelectedView = null;
-                invalidate();
-            }
-
-            lumiTrackingTouch = false;
-            lumiDraggingTouch = false;
-            return super.dispatchTouchEvent(ev);
-        }
-
-        if (lumiDraggingTouch) {
-            return true;
-        }
-
-        return super.dispatchTouchEvent(ev);
-    }
-"""
-
-content = replace_once(
-    content,
-    old_dispatch,
-    new_dispatch,
-    "MainTabsLayout dispatchTouchEvent anchor not found"
-)
-
-tabs_layout.write_text(content, encoding="utf-8")
+    for marker in markers:
+        if marker not in data:
+            raise SystemExit(
+                f"ERROR: validation failed in {relative_path}: {marker}"
+            )
 
 
-# --------------------------------------------------
-# Готово
-# --------------------------------------------------
-
-print(
-    "LumiGlass: palette, chat cards, contact name/phone search, "
-    "ruby glass capsule and immediate swipe navigation configured"
-)
+print("")
+print("LumiGlass patch applied successfully.")
+print("App label: LumiGlass")
+print("Palette: dark graphite / ruby")
+print("Chat list: rounded glass cards")
+print("Contact search: name order and phone number matching")
+print("Bottom tabs: ruby glass selection capsule")
+print("")
+print("NOTE: Android compilation is performed by GitHub Actions.")
