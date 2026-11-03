@@ -2,18 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-LumiGlass — patch script for the Telegram Android source.
+LumiGlass — patch script for Telegram Android source.
 
-Run from the repository root:
+Run from repository root:
     python3 scripts/apply_lumiglass.py
 
-The Telegram source must be in ./telegram-src
+Telegram source must be in ./telegram-src
 """
 
 from pathlib import Path
 import re
 import sys
-
 
 ROOT = Path(__file__).resolve().parent.parent
 PROJECT = ROOT / "telegram-src"
@@ -462,7 +461,171 @@ write_file(path, content)
 
 
 # ============================================================
-# 7. PATCH VALIDATION
+# 7. IMMEDIATE HORIZONTAL TAB SWIPE
+# ============================================================
+
+path, content = read_file(
+    "TMessagesProj/src/main/java/org/telegram/ui/MainTabsLayout.java"
+)
+
+dispatch_anchor = """    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        clickHelper.onTouchEvent(this, ev);
+        return super.dispatchTouchEvent(ev);
+    }
+"""
+
+dispatch_replacement = """    private boolean lumiSwipeTracking;
+    private boolean lumiSwipeActive;
+    private float lumiSwipeDownX;
+    private float lumiSwipeDownY;
+    private View lumiSwipeLastTab;
+
+    private void beginLumiSwipe(float x, float y) {
+        View selected = findSelectedTab();
+        if (selected == null) {
+            return;
+        }
+
+        lumiSwipeActive = true;
+        lumiSwipeLastTab = selected;
+
+        float selectedCenter =
+                selected.getX() + selected.getWidth() / 2f;
+
+        // Initialize the selector at the currently selected tab.
+        // This avoids the built-in long-press initial tab click.
+        checkLongMove(selectedCenter, y, true, false);
+        checkLongMove(x, y, false, false);
+
+        AndroidUtilities.cancelRunOnUIThread(restoreDrawSelector);
+        setSkipDrawSelector(true);
+    }
+
+    private void moveLumiSwipe(float x, float y) {
+        if (!lumiSwipeActive) {
+            return;
+        }
+
+        float clampedX = clampXToChildrenCenters(x, this);
+        View target = findNearestVisibleChildByX(clampedX, this);
+
+        if (target != null && target != lumiSwipeLastTab) {
+            lumiSwipeLastTab = target;
+            target.performClick();
+        }
+
+        checkLongMove(clampedX, y, false, false);
+        invalidate();
+    }
+
+    private void finishLumiSwipe(float x, float y) {
+        if (!lumiSwipeActive) {
+            return;
+        }
+
+        checkLongMove(x, y, false, true);
+
+        View selected = findSelectedTab();
+        if (selected != null) {
+            float center = selected.getX() + selected.getWidth() / 2f;
+            selectedTabPositionX.animateToFinalPosition(center);
+        }
+
+        lumiSwipeActive = false;
+        lumiSwipeTracking = false;
+        lumiSwipeLastTab = null;
+
+        AndroidUtilities.runOnUIThread(restoreDrawSelector, 450);
+        invalidate();
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        final int action = ev.getActionMasked();
+        final float x = ev.getX();
+        final float y = ev.getY();
+
+        if (action == MotionEvent.ACTION_DOWN) {
+            lumiSwipeTracking = isInsideVisibleTab(x, y);
+            lumiSwipeActive = false;
+            lumiSwipeDownX = x;
+            lumiSwipeDownY = y;
+        }
+
+        if (action == MotionEvent.ACTION_MOVE
+                && lumiSwipeTracking
+                && !lumiSwipeActive
+                && !clickHelper.inLongPress()) {
+
+            float dx = x - lumiSwipeDownX;
+            float dy = y - lumiSwipeDownY;
+
+            float slop = android.view.ViewConfiguration
+                    .get(getContext()).getScaledTouchSlop();
+
+            if (Math.abs(dx) > slop
+                    && Math.abs(dx) > Math.abs(dy) * 1.15f) {
+
+                // Cancel the pending ordinary click before taking over
+                // the gesture for the moving selector.
+                clickHelper.cancel(this, x, y);
+
+                MotionEvent cancel = MotionEvent.obtain(ev);
+                cancel.setAction(MotionEvent.ACTION_CANCEL);
+                super.dispatchTouchEvent(cancel);
+                cancel.recycle();
+
+                beginLumiSwipe(lumiSwipeDownX, lumiSwipeDownY);
+                moveLumiSwipe(x, y);
+            }
+        } else if (action == MotionEvent.ACTION_MOVE && lumiSwipeActive) {
+            moveLumiSwipe(x, y);
+        } else if (action == MotionEvent.ACTION_UP && lumiSwipeActive) {
+            finishLumiSwipe(x, y);
+            lumiSwipeTracking = false;
+            return true;
+        } else if (action == MotionEvent.ACTION_CANCEL && lumiSwipeActive) {
+            finishLumiSwipe(x, y);
+            lumiSwipeTracking = false;
+            return true;
+        }
+
+        if (!lumiSwipeActive) {
+            clickHelper.onTouchEvent(this, ev);
+        }
+
+        boolean handled = super.dispatchTouchEvent(ev);
+
+        if (action == MotionEvent.ACTION_UP
+                || action == MotionEvent.ACTION_CANCEL) {
+            lumiSwipeTracking = false;
+        }
+
+        return handled;
+    }
+
+    private boolean isInsideVisibleTab(float x, float y) {
+        return findChildUnder(this, x, y) != null;
+    }
+"""
+
+if dispatch_anchor in content:
+    content = content.replace(
+        dispatch_anchor,
+        dispatch_replacement,
+        1
+    )
+elif "private boolean lumiSwipeTracking;" not in content:
+    raise SystemExit(
+        "ERROR: MainTabsLayout dispatchTouchEvent anchor not found"
+    )
+
+write_file(path, content)
+
+
+# ============================================================
+# 8. PATCH VALIDATION
 # ============================================================
 
 checks = {
@@ -484,7 +647,9 @@ checks = {
     ],
     "TMessagesProj/src/main/java/org/telegram/ui/MainTabsLayout.java": [
         "selectorBorderPaint",
-        "0xFFA52A50"
+        "0xFFA52A50",
+        "private boolean lumiSwipeTracking;",
+        "private void moveLumiSwipe"
     ]
 }
 
@@ -492,7 +657,9 @@ for relative_path, markers in checks.items():
     file_path = PROJECT / relative_path
 
     if not file_path.is_file():
-        raise SystemExit(f"ERROR: validation file missing: {relative_path}")
+        raise SystemExit(
+            f"ERROR: validation file missing: {relative_path}"
+        )
 
     data = file_path.read_text(encoding="utf-8")
 
@@ -504,11 +671,12 @@ for relative_path, markers in checks.items():
 
 
 print("")
-print("LumiGlass patch applied successfully.")
+print("LumiGlass patch applied.")
 print("App label: LumiGlass")
 print("Palette: dark graphite / ruby")
 print("Chat list: rounded glass cards")
 print("Contact search: name order and phone number matching")
-print("Bottom tabs: ruby glass selection capsule")
+print("Bottom tabs: ruby glass capsule")
+print("Bottom tabs: immediate horizontal swipe gesture")
 print("")
-print("NOTE: Android compilation is performed by GitHub Actions.")
+print("Android compilation is performed by GitHub Actions.")
