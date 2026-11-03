@@ -137,7 +137,42 @@ content = (
 )
 
 write_file(path, content)
+# Fix SDK23 debug manifest label conflict.
+path, content = read_file(
+    "TMessagesProj/config/debug/AndroidManifest_SDK23.xml"
+)
 
+match = re.search(r"<application\b[^>]*>", content, flags=re.S)
+
+if not match:
+    raise SystemExit("ERROR: SDK23 application tag not found")
+
+tag = match.group(0)
+
+replace_match = re.search(
+    r'\btools:replace\s*=\s*"([^"]*)"', tag
+)
+
+if replace_match:
+    attrs = [
+        item.strip()
+        for item in replace_match.group(1).split(",")
+        if item.strip()
+    ]
+    if "android:label" not in attrs:
+        attrs.append("android:label")
+
+    tag = re.sub(
+        r'\btools:replace\s*=\s*"[^"]*"',
+        'tools:replace="' + ",".join(attrs) + '"',
+        tag,
+        count=1
+    )
+else:
+    tag = tag[:-1] + ' tools:replace="android:label">'
+
+content = content[:match.start()] + tag + content[match.end():]
+write_file(path, content)
 
 # ============================================================
 # 2. STARTUP THEME
