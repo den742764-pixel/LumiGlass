@@ -2,8 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-LumiGlass — patch script for Telegram Android source.
-
+LumiGlass — Telegram Android customization script.
 Run from repository root:
     python3 scripts/apply_lumiglass.py
 
@@ -263,7 +262,7 @@ write_file(path, content)
 
 
 # ============================================================
-# 5. CONTACT SEARCH FIX
+# 5. CONTACT SEARCH
 # ============================================================
 
 path, content = read_file(
@@ -461,7 +460,7 @@ write_file(path, content)
 
 
 # ============================================================
-# 7. IMMEDIATE HORIZONTAL TAB SWIPE
+# 7. HORIZONTAL TAB SWIPE
 # ============================================================
 
 path, content = read_file(
@@ -493,8 +492,6 @@ dispatch_replacement = """    private boolean lumiSwipeTracking;
         float selectedCenter =
                 selected.getX() + selected.getWidth() / 2f;
 
-        // Initialize the selector at the currently selected tab.
-        // This avoids the built-in long-press initial tab click.
         checkLongMove(selectedCenter, y, true, false);
         checkLongMove(x, y, false, false);
 
@@ -567,8 +564,6 @@ dispatch_replacement = """    private boolean lumiSwipeTracking;
             if (Math.abs(dx) > slop
                     && Math.abs(dx) > Math.abs(dy) * 1.15f) {
 
-                // Cancel the pending ordinary click before taking over
-                // the gesture for the moving selector.
                 clickHelper.cancel(this, x, y);
 
                 MotionEvent cancel = MotionEvent.obtain(ev);
@@ -625,7 +620,46 @@ write_file(path, content)
 
 
 # ============================================================
-# 8. PATCH VALIDATION
+# 8. GLASS CHAT COMPOSER
+# ============================================================
+
+path, content = read_file(
+    "TMessagesProj/src/main/java/org/telegram/ui/Components/ChatActivityEnterView.java"
+)
+
+composer_anchor = """        textFieldContainer.setPadding(0, dp(1), 0, 0);
+"""
+
+composer_code = """        textFieldContainer.setPadding(0, dp(1), 0, 0);
+
+        // LumiGlass: rounded graphite glass surface behind the composer.
+        android.graphics.drawable.GradientDrawable lumiComposerBackground =
+                new android.graphics.drawable.GradientDrawable();
+        lumiComposerBackground.setShape(
+                android.graphics.drawable.GradientDrawable.RECTANGLE
+        );
+        lumiComposerBackground.setColor(0xE6211923);
+        lumiComposerBackground.setCornerRadius(dp(22));
+        lumiComposerBackground.setStroke(dp(1), 0x66FFFFFF);
+        textFieldContainer.setBackground(lumiComposerBackground);
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            textFieldContainer.setElevation(dp(3));
+        }
+"""
+
+if "LumiGlass: rounded graphite glass surface" not in content:
+    content = replace_required(
+        content,
+        composer_anchor,
+        composer_code,
+        "Chat composer textFieldContainer padding"
+    )
+
+write_file(path, content)
+
+
+# ============================================================
+# 9. PATCH VALIDATION
 # ============================================================
 
 checks = {
@@ -644,6 +678,10 @@ checks = {
     "TMessagesProj/src/main/java/org/telegram/ui/Adapters/SearchAdapter.java": [
         "Refresh phonebook cache for every search.",
         "boolean phoneMatches"
+    ],
+    "TMessagesProj/src/main/java/org/telegram/ui/Components/ChatActivityEnterView.java": [
+        "LumiGlass: rounded graphite glass surface",
+        "lumiComposerBackground.setCornerRadius(dp(22))"
     ],
     "TMessagesProj/src/main/java/org/telegram/ui/MainTabsLayout.java": [
         "selectorBorderPaint",
@@ -677,6 +715,7 @@ print("Palette: dark graphite / ruby")
 print("Chat list: rounded glass cards")
 print("Contact search: name order and phone number matching")
 print("Bottom tabs: ruby glass capsule")
-print("Bottom tabs: immediate horizontal swipe gesture")
+print("Bottom tabs: horizontal swipe gesture")
+print("Chat composer: rounded graphite glass surface")
 print("")
 print("Android compilation is performed by GitHub Actions.")
