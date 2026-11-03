@@ -1,3 +1,66 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+LumiGlass — Telegram Android customization script.
+"""
+
+from pathlib import Path
+import re
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+PROJECT = ROOT / "telegram-src"
+
+if not PROJECT.is_dir():
+    raise SystemExit(
+        "ERROR: telegram-src folder not found."
+    )
+
+
+def read_file(relative_path):
+    path = PROJECT / relative_path
+    if not path.is_file():
+        raise SystemExit(f"ERROR: source file not found: {path}")
+    return path, path.read_text(encoding="utf-8")
+
+
+def write_file(path, content):
+    path.write_text(content, encoding="utf-8")
+
+
+def replace_required(content, old, new, description):
+    if new in content:
+        return content
+    if old not in content:
+        raise SystemExit(
+            f"ERROR: cannot find source anchor: {description}"
+        )
+    return content.replace(old, new, 1)
+
+
+def replace_in_style(content, style_name, replacements):
+    pattern = (
+        r'(<style\s+name="' + re.escape(style_name) +
+        r'"[^>]*>)(.*?)(</style>)'
+    )
+    match = re.search(pattern, content, flags=re.S)
+
+    if not match:
+        raise SystemExit(f"ERROR: style not found: {style_name}")
+
+    body = match.group(2)
+
+    for old, new in replacements:
+        if new in body:
+            continue
+        if old not in body:
+            raise SystemExit(
+                f"ERROR: style item not found in {style_name}: {old}"
+            )
+        body = body.replace(old, new, 1)
+
+    return content[:match.start(2)] + body + content[match.end(2):]
 # ============================================================
 # 1. APP NAME + ANDROID MANIFEST MERGE
 # ============================================================
