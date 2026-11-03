@@ -38,7 +38,9 @@ def replace_required(content, old, new, description):
     if new in content:
         return content
     if old not in content:
-        raise SystemExit(f"ERROR: cannot find source anchor: {description}")
+        raise SystemExit(
+            f"ERROR: cannot find source anchor: {description}"
+        )
     return content.replace(old, new, 1)
 
 
@@ -262,123 +264,7 @@ write_file(path, content)
 
 
 # ============================================================
-# 5. CONTACT SEARCH
-# ============================================================
-
-path, content = read_file(
-    "TMessagesProj/src/main/java/org/telegram/ui/Adapters/SearchAdapter.java"
-)
-
-old_search = """                if (allUnregistredContacts == null) {
-                    allUnregistredContacts = new ArrayList<>();
-                    for (ContactsController.Contact contact : ContactsController.getInstance(currentAccount).phoneBookContacts) {
-                        ContactEntry contactEntry = new ContactEntry();
-                        contactEntry.contact = contact;
-                        contactEntry.q1 = (contact.first_name + " " + contact.last_name).toLowerCase();
-                        contactEntry.q2 = (contact.last_name + " " + contact.first_name).toLowerCase();
-                        allUnregistredContacts.add(contactEntry);
-                    }
-                }
-                for (int i = 0; i < allUnregistredContacts.size(); i++) {
-                    ContactEntry contact = allUnregistredContacts.get(i);
-                    if ((search2 != null && (contact.q1.toLowerCase().contains(search2) || contact.q1.toLowerCase().contains(search2))) || contact.q1.toLowerCase().contains(search1) || contact.q1.toLowerCase().contains(search1)) {
-                        unregistredContacts.add(contact.contact);
-                    }
-                }
-"""
-
-new_search = """                // Refresh phonebook cache for every search.
-                allUnregistredContacts = new ArrayList<>();
-
-                for (ContactsController.Contact phoneContact :
-                        ContactsController.getInstance(currentAccount).phoneBookContacts) {
-
-                    ContactEntry entry = new ContactEntry();
-                    entry.contact = phoneContact;
-
-                    String first = phoneContact.first_name == null
-                            ? "" : phoneContact.first_name.trim();
-
-                    String last = phoneContact.last_name == null
-                            ? "" : phoneContact.last_name.trim();
-
-                    entry.q1 = (first + " " + last).trim().toLowerCase();
-                    entry.q2 = (last + " " + first).trim().toLowerCase();
-
-                    allUnregistredContacts.add(entry);
-                }
-
-                String searchDigits = search1.replaceAll("[^0-9]", "");
-
-                for (int i = 0; i < allUnregistredContacts.size(); i++) {
-                    ContactEntry entry = allUnregistredContacts.get(i);
-
-                    boolean nameMatches =
-                            (!entry.q1.isEmpty() && entry.q1.contains(search1))
-                            || (!entry.q2.isEmpty() && entry.q2.contains(search1));
-
-                    if (!nameMatches && search2 != null) {
-                        nameMatches =
-                                (!entry.q1.isEmpty() && entry.q1.contains(search2))
-                                || (!entry.q2.isEmpty() && entry.q2.contains(search2));
-                    }
-
-                    boolean phoneMatches = false;
-
-                    if (searchDigits.length() >= 5) {
-                        for (String phone : entry.contact.phones) {
-                            if (phone == null) {
-                                continue;
-                            }
-
-                            String digits = phone.replaceAll("[^0-9]", "");
-
-                            if (digits.equals(searchDigits)
-                                    || digits.endsWith(searchDigits)
-                                    || (searchDigits.endsWith(digits)
-                                        && digits.length() >= 7)) {
-                                phoneMatches = true;
-                                break;
-                            }
-                        }
-
-                        if (!phoneMatches) {
-                            for (String phone : entry.contact.shortPhones) {
-                                if (phone == null) {
-                                    continue;
-                                }
-
-                                String digits = phone.replaceAll("[^0-9]", "");
-
-                                if (digits.equals(searchDigits)
-                                        || digits.endsWith(searchDigits)
-                                        || (searchDigits.endsWith(digits)
-                                            && digits.length() >= 7)) {
-                                    phoneMatches = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    if (nameMatches || phoneMatches) {
-                        unregistredContacts.add(entry.contact);
-                    }
-                }
-"""
-
-if old_search in content:
-    content = content.replace(old_search, new_search, 1)
-elif "Refresh phonebook cache for every search." not in content:
-    raise SystemExit(
-        "ERROR: SearchAdapter source block differs from expected version"
-    )
-
-write_file(path, content)
-
-
-# ============================================================
-# 6. RUBY GLASS BOTTOM TAB CAPSULE
+# 5. RUBY GLASS BOTTOM TAB CAPSULE
 # ============================================================
 
 path, content = read_file(
@@ -460,167 +346,7 @@ write_file(path, content)
 
 
 # ============================================================
-# 7. HORIZONTAL TAB SWIPE
-# ============================================================
-
-path, content = read_file(
-    "TMessagesProj/src/main/java/org/telegram/ui/MainTabsLayout.java"
-)
-
-dispatch_anchor = """    @Override
-    public boolean dispatchTouchEvent(MotionEvent ev) {
-        clickHelper.onTouchEvent(this, ev);
-        return super.dispatchTouchEvent(ev);
-    }
-"""
-
-dispatch_replacement = """    private boolean lumiSwipeTracking;
-    private boolean lumiSwipeActive;
-    private float lumiSwipeDownX;
-    private float lumiSwipeDownY;
-    private View lumiSwipeLastTab;
-
-    private void beginLumiSwipe(float x, float y) {
-        View selected = findSelectedTab();
-        if (selected == null) {
-            return;
-        }
-
-        lumiSwipeActive = true;
-        lumiSwipeLastTab = selected;
-
-        float selectedCenter =
-                selected.getX() + selected.getWidth() / 2f;
-
-        checkLongMove(selectedCenter, y, true, false);
-        checkLongMove(x, y, false, false);
-
-        AndroidUtilities.cancelRunOnUIThread(restoreDrawSelector);
-        setSkipDrawSelector(true);
-    }
-
-    private void moveLumiSwipe(float x, float y) {
-        if (!lumiSwipeActive) {
-            return;
-        }
-
-        float clampedX = clampXToChildrenCenters(x, this);
-        View target = findNearestVisibleChildByX(clampedX, this);
-
-        if (target != null && target != lumiSwipeLastTab) {
-            lumiSwipeLastTab = target;
-            target.performClick();
-        }
-
-        checkLongMove(clampedX, y, false, false);
-        invalidate();
-    }
-
-    private void finishLumiSwipe(float x, float y) {
-        if (!lumiSwipeActive) {
-            return;
-        }
-
-        checkLongMove(x, y, false, true);
-
-        View selected = findSelectedTab();
-        if (selected != null) {
-            float center = selected.getX() + selected.getWidth() / 2f;
-            selectedTabPositionX.animateToFinalPosition(center);
-        }
-
-        lumiSwipeActive = false;
-        lumiSwipeTracking = false;
-        lumiSwipeLastTab = null;
-
-        AndroidUtilities.runOnUIThread(restoreDrawSelector, 450);
-        invalidate();
-    }
-
-    @Override
-    public boolean dispatchTouchEvent(MotionEvent ev) {
-        final int action = ev.getActionMasked();
-        final float x = ev.getX();
-        final float y = ev.getY();
-
-        if (action == MotionEvent.ACTION_DOWN) {
-            lumiSwipeTracking = isInsideVisibleTab(x, y);
-            lumiSwipeActive = false;
-            lumiSwipeDownX = x;
-            lumiSwipeDownY = y;
-        }
-
-        if (action == MotionEvent.ACTION_MOVE
-                && lumiSwipeTracking
-                && !lumiSwipeActive
-                && !clickHelper.inLongPress()) {
-
-            float dx = x - lumiSwipeDownX;
-            float dy = y - lumiSwipeDownY;
-
-            float slop = android.view.ViewConfiguration
-                    .get(getContext()).getScaledTouchSlop();
-
-            if (Math.abs(dx) > slop
-                    && Math.abs(dx) > Math.abs(dy) * 1.15f) {
-
-                clickHelper.cancel(this, x, y);
-
-                MotionEvent cancel = MotionEvent.obtain(ev);
-                cancel.setAction(MotionEvent.ACTION_CANCEL);
-                super.dispatchTouchEvent(cancel);
-                cancel.recycle();
-
-                beginLumiSwipe(lumiSwipeDownX, lumiSwipeDownY);
-                moveLumiSwipe(x, y);
-            }
-        } else if (action == MotionEvent.ACTION_MOVE && lumiSwipeActive) {
-            moveLumiSwipe(x, y);
-        } else if (action == MotionEvent.ACTION_UP && lumiSwipeActive) {
-            finishLumiSwipe(x, y);
-            lumiSwipeTracking = false;
-            return true;
-        } else if (action == MotionEvent.ACTION_CANCEL && lumiSwipeActive) {
-            finishLumiSwipe(x, y);
-            lumiSwipeTracking = false;
-            return true;
-        }
-
-        if (!lumiSwipeActive) {
-            clickHelper.onTouchEvent(this, ev);
-        }
-
-        boolean handled = super.dispatchTouchEvent(ev);
-
-        if (action == MotionEvent.ACTION_UP
-                || action == MotionEvent.ACTION_CANCEL) {
-            lumiSwipeTracking = false;
-        }
-
-        return handled;
-    }
-
-    private boolean isInsideVisibleTab(float x, float y) {
-        return findChildUnder(this, x, y) != null;
-    }
-"""
-
-if dispatch_anchor in content:
-    content = content.replace(
-        dispatch_anchor,
-        dispatch_replacement,
-        1
-    )
-elif "private boolean lumiSwipeTracking;" not in content:
-    raise SystemExit(
-        "ERROR: MainTabsLayout dispatchTouchEvent anchor not found"
-    )
-
-write_file(path, content)
-
-
-# ============================================================
-# 8. GLASS CHAT COMPOSER
+# 6. GLASS CHAT COMPOSER
 # ============================================================
 
 path, content = read_file(
@@ -659,7 +385,7 @@ write_file(path, content)
 
 
 # ============================================================
-# 9. PATCH VALIDATION
+# 7. PATCH VALIDATION
 # ============================================================
 
 checks = {
@@ -675,19 +401,13 @@ checks = {
         "lumiGlassCardRect",
         "LumiGlass rounded glass card."
     ],
-    "TMessagesProj/src/main/java/org/telegram/ui/Adapters/SearchAdapter.java": [
-        "Refresh phonebook cache for every search.",
-        "boolean phoneMatches"
-    ],
     "TMessagesProj/src/main/java/org/telegram/ui/Components/ChatActivityEnterView.java": [
         "LumiGlass: rounded graphite glass surface",
         "lumiComposerBackground.setCornerRadius(dp(22))"
     ],
     "TMessagesProj/src/main/java/org/telegram/ui/MainTabsLayout.java": [
         "selectorBorderPaint",
-        "0xFFA52A50",
-        "private boolean lumiSwipeTracking;",
-        "private void moveLumiSwipe"
+        "0xFFA52A50"
     ]
 }
 
@@ -713,9 +433,8 @@ print("LumiGlass patch applied.")
 print("App label: LumiGlass")
 print("Palette: dark graphite / ruby")
 print("Chat list: rounded glass cards")
-print("Contact search: name order and phone number matching")
 print("Bottom tabs: ruby glass capsule")
-print("Bottom tabs: horizontal swipe gesture")
+print("Bottom tabs: native Telegram touch handling preserved")
 print("Chat composer: rounded graphite glass surface")
 print("")
 print("Android compilation is performed by GitHub Actions.")
