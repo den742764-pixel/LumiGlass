@@ -1,0 +1,7 @@
+{
+  "appId": "app.lumi.messenger",
+  "appName": "Луми",
+  "webDir": "dist",
+  "server": { "androidScheme": "https" },
+  "android": { "allowMixedContent": false }
+}

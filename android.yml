@@ -1,0 +1,54 @@
+name: Build Lumi APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web app
+        env:
+          VITE_API_ID: ${{ secrets.VITE_API_ID }}
+          VITE_API_HASH: ${{ secrets.VITE_API_HASH }}
+        run: pnpm exec vite build
+
+      - name: Wrap in Capacitor
+        run: |
+          mkdir -p /tmp/cap && cp capacitor.config.json /tmp/cap/
+          cd /tmp/cap
+          npm init -y >/dev/null
+          npm i @capacitor/core @capacitor/cli @capacitor/android
+          cp -r "$GITHUB_WORKSPACE/dist" ./dist
+          npx cap add android
+          npx cap sync android
+          # иконка Луми
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            for f in ic_launcher ic_launcher_round ic_launcher_foreground; do
+              cp "$GITHUB_WORKSPACE/public/assets/img/android-chrome-192x192.png" "android/app/src/main/res/mipmap-$d/$f.png"
+            done
+          done
+          cd android && ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lumi-apk
+          path: /tmp/cap/android/app/build/outputs/apk/debug/app-debug.apk
